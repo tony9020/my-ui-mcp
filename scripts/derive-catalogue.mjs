@@ -310,7 +310,7 @@ const out = {
   meta: {
     sourceFile: "src/data/components.json",
     sourceHash,
-    generatedAt: new Date().toISOString(),
+    generatedAt: data.meta?.generatedAt ?? null,
     siteUrl: SITE_URL,
     recordCount: records.length,
     derivedCount: Object.keys(derived).length,
