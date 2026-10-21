@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "myui-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/TO/my-ui-mcp/mcp/run.mjs"]
+    }
+  }
+}

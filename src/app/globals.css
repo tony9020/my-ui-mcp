@@ -1,0 +1,323 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   My Ui — design tokens
+   Iris violet accent on warm, paper-like neutrals. Soft plum-black dark stage.
+   ========================================================================== */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.75rem;
+
+  /* core surfaces (light / marketplace) */
+  --background: #fbf9f6;
+  --foreground: #17130f;
+  --surface: #f4f0ea;
+  --surface-elevated: #ffffff;
+
+  --card: #ffffff;
+  --card-foreground: #17130f;
+
+  --popover: #ffffff;
+  --popover-foreground: #17130f;
+
+  /* shadcn "primary" is warm ink on light, warm white on dark */
+  --primary: #17130f;
+  --primary-foreground: #fbf9f6;
+
+  --secondary: #f4f0ea;
+  --secondary-foreground: #17130f;
+
+  --muted: #f4f0ea;
+  --muted-foreground: #7a716a;
+
+  --accent: #f4f0ea;
+  --accent-foreground: #17130f;
+
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+
+  --border: #e7dfd6;
+  --input: #e7dfd6;
+  --ring: #6d28d9;
+
+  /* My Ui iris violet */
+  --brand: #6d28d9;
+  --brand-foreground: #ffffff;
+  --brand-muted: #f2ecff;
+
+  --chart-1: #7c3aed;
+  --chart-2: #0d9488;
+  --chart-3: #4f46e5;
+  --chart-4: #e11d48;
+  --chart-5: #d97706;
+
+  --sidebar: #f4f0ea;
+  --sidebar-foreground: #4a423c;
+  --sidebar-border: #e7dfd6;
+
+  /* landing-page (always dark) tokens */
+  --lp-bg: #0e0b12;
+  --lp-fg: #f5f1ea;
+  --lp-muted: #a79fb3;
+  --lp-border: #2c2438;
+  --lp-accent: #a78bfa;
+}
+
+.dark {
+  --background: #0e0b12;
+  --foreground: #f5f1ea;
+  --surface: #0e0b12;
+  --surface-elevated: #1a1520;
+
+  --card: #15101b;
+  --card-foreground: #f5f1ea;
+
+  --popover: #1a1520;
+  --popover-foreground: #f5f1ea;
+
+  --primary: #f5f1ea;
+  --primary-foreground: #0e0b12;
+
+  --secondary: #1e1826;
+  --secondary-foreground: #f5f1ea;
+
+  --muted: #1e1826;
+  --muted-foreground: #a79fb3;
+
+  --accent: #1e1826;
+  --accent-foreground: #f5f1ea;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+
+  --border: #2c2438;
+  --input: #2c2438;
+  --ring: #8b5cf6;
+
+  --brand: #7c3aed;
+  --brand-foreground: #ffffff;
+  --brand-muted: #241a3a;
+
+  --sidebar: #15101b;
+  --sidebar-foreground: #b5acc0;
+  --sidebar-border: #2c2438;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-muted: var(--brand-muted);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-lp-bg: var(--lp-bg);
+  --color-lp-fg: var(--lp-fg);
+  --color-lp-muted: var(--lp-muted);
+  --color-lp-border: var(--lp-border);
+  --color-lp-accent: var(--lp-accent);
+
+  --font-sans: "General Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Averia Serif Libre", ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+
+  --animate-marquee: marquee 40s linear infinite;
+  --animate-marquee-vertical: marquee-vertical 30s linear infinite;
+  --animate-fade-up: fade-up 0.6s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  --animate-fade-in: fade-in 0.4s ease-out both;
+  --animate-shimmer: shimmer 2.4s linear infinite;
+  --animate-aurora: aurora 12s ease-in-out infinite alternate;
+  --animate-pulse-glow: pulse-glow 3s ease-in-out infinite;
+  --animate-spin-slow: spin 8s linear infinite;
+  --animate-scale-in: scale-in 0.18s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  --animate-caret: caret 1s steps(1) infinite;
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-50% - 0.5rem)); }
+}
+@keyframes marquee-vertical {
+  from { transform: translateY(0); }
+  to { transform: translateY(-50%); }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@keyframes aurora {
+  0% { transform: translate3d(-4%, -2%, 0) scale(1); }
+  100% { transform: translate3d(4%, 3%, 0) scale(1.12); }
+}
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.95; }
+}
+@keyframes caret {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+    font-variation-settings: "opsz" 32;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--brand) 24%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Shiki dual-theme output (matches the My Ui code viewer).
+   The highlighter emits --shiki-light/--shiki-dark CSS vars per token.
+   --------------------------------------------------------------------------- */
+.shiki {
+  background-color: var(--shiki-light-bg, transparent) !important;
+  color: var(--shiki-light) !important;
+}
+.shiki span {
+  color: var(--shiki-light);
+}
+.dark .shiki {
+  background-color: var(--shiki-dark-bg, transparent) !important;
+  color: var(--shiki-dark) !important;
+}
+.dark .shiki span {
+  color: var(--shiki-dark);
+}
+.shiki code {
+  display: block;
+  counter-reset: line;
+}
+.shiki .line {
+  display: inline-block;
+  width: 100%;
+  padding-inline: 1rem;
+}
+.shiki .line[data-line]::before {
+  content: attr(data-line);
+  display: inline-block;
+  width: 2ch;
+  margin-right: 1.25rem;
+  text-align: right;
+  color: var(--muted-foreground);
+  opacity: 0.5;
+  user-select: none;
+}
+.shiki .line:hover {
+  background-color: color-mix(in oklab, var(--brand) 6%, transparent);
+}
+
+@layer utilities {
+  /* the landing hero glow — violet, magenta and indigo bloom */
+  .lp-glow {
+    background-image:
+      radial-gradient(52% 52%, oklch(0.57 0.26 300 / 0.5), rgba(0, 0, 0, 0) 78%),
+      radial-gradient(38% 44% at 62% 54%, oklch(0.72 0.2 330 / 0.26), rgba(0, 0, 0, 0) 76%),
+      radial-gradient(34% 40% at 38% 54%, oklch(0.68 0.17 275 / 0.3), rgba(0, 0, 0, 0) 76%);
+  }
+  .lp-grid {
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+  .text-balance { text-wrap: balance; }
+  .text-pretty { text-wrap: pretty; }
+  .bg-checker {
+    background-image:
+      linear-gradient(45deg, var(--muted) 25%, transparent 25%),
+      linear-gradient(-45deg, var(--muted) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, var(--muted) 75%),
+      linear-gradient(-45deg, transparent 75%, var(--muted) 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+  }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .shimmer-text {
+    background: linear-gradient(90deg, currentColor 0%, currentColor 40%, color-mix(in oklab, currentColor 40%, transparent) 50%, currentColor 60%, currentColor 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .mask-fade-x {
+    -webkit-mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+    mask-image: linear-gradient(to right, transparent, black 8%, black 92%, transparent);
+  }
+  .mask-fade-b {
+    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent);
+    mask-image: linear-gradient(to bottom, black 60%, transparent);
+  }
+}

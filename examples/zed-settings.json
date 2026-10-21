@@ -1,0 +1,9 @@
+{
+  "context_servers": {
+    "myui-mcp": {
+      "source": "custom",
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/TO/my-ui-mcp/mcp/run.mjs"]
+    }
+  }
+}

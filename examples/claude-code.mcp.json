@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "myui-mcp": {
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/TO/my-ui-mcp/mcp/run.mjs"]
+    }
+  }
+}

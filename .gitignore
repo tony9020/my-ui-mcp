@@ -1,0 +1,24 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+
+*.log
+npm-debug.log*
+
+.DS_Store
+Thumbs.db
+
+# Editor / IDE scratch
+.idea/
+*.swp
+
+# Local installer backups
+*.bak.*

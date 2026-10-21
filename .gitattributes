@@ -1,0 +1,4 @@
+# The catalogue payload is a build artefact: keep it out of language stats and
+# never let the 27 MB diff dominate pull requests.
+src/data/components.json linguist-generated=true
+src/data/components.json -diff

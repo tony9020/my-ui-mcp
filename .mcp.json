@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "myui-mcp": {
+      "command": "node",
+      "args": ["mcp/run.mjs"]
+    }
+  }
+}

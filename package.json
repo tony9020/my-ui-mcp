@@ -1,0 +1,36 @@
+{
+  "name": "my-ui-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local stdio MCP server for the My Ui design system: 57 verified local components, 8,157 marketplace catalogue records, semantic tokens, a copy-first handoff workflow and composition validation.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "design-system",
+    "react",
+    "components",
+    "ai",
+    "ide"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "tsx mcp/server.ts",
+    "mcp": "tsx mcp/server.ts",
+    "smoke": "node mcp/smoke-test.mjs",
+    "typecheck": "tsc --noEmit",
+    "setup": "node scripts/setup.mjs",
+    "setup:help": "node scripts/setup.mjs --help"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.7.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7"
+  }
+}
