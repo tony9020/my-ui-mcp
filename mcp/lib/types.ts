@@ -8,6 +8,26 @@
 export type ComponentKind = "primitive" | "pattern" | "section" | "provider" | "catalogue";
 
 export type ComponentOrigin = "local" | "catalogue";
+export type TrustTier = "verified" | "linked" | "reference";
+export type LicenseClass =
+  | "first-party"
+  | "permissive"
+  | "weak-copyleft"
+  | "strong-copyleft"
+  | "restricted"
+  | "none"
+  | "unknown";
+
+export interface CodeQualitySignals {
+  declaredDepsUnused: string[];
+  importsResolvable: boolean;
+  usesUndefinedKeyframes: boolean;
+  demoMatchesComponent: boolean;
+  hasReducedMotion: boolean;
+  ariaScore: number;
+  usesTokens: boolean;
+  usesHardcodedColor: boolean;
+}
 
 export interface AuthorInfo {
   username: string;
@@ -37,6 +57,7 @@ export interface CatalogueMetadata {
   registry: string;
   stats: CatalogueStats;
   gradient: [string, string] | null;
+  updatedAt?: string | null;
   generated: boolean;
   registryRoute: string;
   sourcePage: string;
@@ -62,6 +83,7 @@ export interface ComponentGuidelines {
 export interface ComponentDependencies {
   npm: string[];
   internal: string[];
+  declared?: string[];
 }
 
 export interface ComponentVariants {
@@ -94,9 +116,27 @@ export interface ComponentInfo {
   usageExamples: string[];
   guidelines: ComponentGuidelines;
   related: string[];
+  relatedReasons?: { id: string; score: number; reasons: string[] }[];
   tokensUsed: string[];
   usedIn: number;
   catalogue?: CatalogueMetadata;
+  // ---- derived (from src/data/catalogue-derived.json or computed in-process)
+  trustTier?: TrustTier;
+  licenseClass?: LicenseClass;
+  isCanonical?: boolean;
+  canonicalId?: string;
+  duplicateOf?: string | null;
+  alternates?: string[];
+  codeQuality?: CodeQualitySignals;
+  complianceScore?: number;
+  popularityScore?: number;
+  heavyDeps?: string[];
+  frameworkLock?: "next" | "none";
+  codeHash?: string;
+  resolvedPreviewUrl?: string | null;
+  resolvedPreviewLight?: string | null;
+  resolvedPreviewDark?: string | null;
+  resolvedVideoUrl?: string | null;
 }
 
 export interface ComponentSummary {
@@ -119,6 +159,13 @@ export interface ComponentSummary {
   catalogueId?: string;
   license?: string;
   previewUrl?: string | null;
+  licenseClass?: LicenseClass;
+  trustTier?: TrustTier;
+  isCanonical?: boolean;
+  alternates?: number;
+  complianceScore?: number;
+  popularityScore?: number;
+  resolvedPreviewUrl?: string | null;
 }
 
 export interface ComponentIndexSummary {
@@ -153,6 +200,8 @@ export interface ComponentIndex {
   /** `author/slug` lookup for catalogue records. */
   byCatalogueKey: Map<string, ComponentInfo>;
   categories: { slug: string; name: string; count: number }[];
+  /** Optional precomputed full-text index (MiniSearch). */
+  searchIndex?: unknown;
 }
 
 export interface ColorToken {
@@ -353,6 +402,18 @@ export interface ComponentHandoff {
   author?: AuthorInfo;
   installCommand?: string;
   sourceNote?: string;
+  trustTier?: TrustTier;
+  licenseClass?: LicenseClass;
+  isCanonical?: boolean;
+  canonicalId?: string;
+  duplicateOf?: string | null;
+  alternates?: string[];
+  codeQuality?: CodeQualitySignals;
+  complianceScore?: number;
+  popularityScore?: number;
+  heavyDeps?: string[];
+  frameworkLock?: "next" | "none";
+  resolvedPreviewUrl?: string | null;
 }
 
 export interface HandoffBundle {

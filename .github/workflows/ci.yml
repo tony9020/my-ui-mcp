@@ -9,7 +9,7 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -24,8 +24,19 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Unit tests
+        run: node --import tsx --test 'test/**/*.test.mjs'
+
       - name: Smoke test (spawns the real MCP server)
         run: npm run smoke
 
+      - name: Derive up-to-date check
+        run: |
+          npm run derive
+          git diff --exit-code src/data/catalogue-derived.json
+
       - name: Installer dry-run
         run: node scripts/setup.mjs --ide all --global --dry-run
+
+      - name: Build (compiled path)
+        run: npm run build

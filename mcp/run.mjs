@@ -17,28 +17,40 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const tsxCli = path.join(root, "node_modules", "tsx", "dist", "cli.mjs");
-const server = path.join(here, "server.ts");
+const tsServer = path.join(here, "server.ts");
+const distServer = path.join(root, "dist", "server.mjs");
 
-if (!fs.existsSync(tsxCli)) {
-  console.error(
-    [
-      `[my-ui-mcp] Missing dependency: ${path.relative(process.cwd(), tsxCli) || tsxCli}`,
-      `[my-ui-mcp] Run \`npm install\` in ${root} and restart your MCP client.`,
-    ].join("\n"),
-  );
-  process.exit(1);
+// Prefer the compiled build when it is present and fresh.
+let useDist = false;
+if (fs.existsSync(distServer) && fs.existsSync(tsServer)) {
+  try {
+    const distMtime = fs.statSync(distServer).mtimeMs;
+    const srcMtime = fs.statSync(tsServer).mtimeMs;
+    if (distMtime >= srcMtime) useDist = true;
+  } catch {
+    useDist = false;
+  }
 }
 
-if (!fs.existsSync(server)) {
-  console.error(`[my-ui-mcp] Server not found: ${server}`);
-  process.exit(1);
+let child;
+if (useDist) {
+  child = spawn(process.execPath, [distServer], { cwd: root, stdio: "inherit", env: process.env });
+} else {
+  if (!fs.existsSync(tsxCli)) {
+    console.error(
+      [
+        `[my-ui-mcp] Missing dependency: ${path.relative(process.cwd(), tsxCli) || tsxCli}`,
+        `[my-ui-mcp] Run \`npm install\` in ${root} and restart your MCP client.`,
+      ].join("\n"),
+    );
+    process.exit(1);
+  }
+  if (!fs.existsSync(tsServer)) {
+    console.error(`[my-ui-mcp] Server not found: ${tsServer}`);
+    process.exit(1);
+  }
+  child = spawn(process.execPath, [tsxCli, tsServer], { cwd: root, stdio: "inherit", env: process.env });
 }
-
-const child = spawn(process.execPath, [tsxCli, server], {
-  cwd: root,
-  stdio: "inherit",
-  env: process.env,
-});
 
 const forward = (signal) => {
   if (!child.killed) child.kill(signal);

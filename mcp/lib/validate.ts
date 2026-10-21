@@ -528,6 +528,21 @@ export function validateComposition(
     }
   }
 
+  // Focus-visible states on interactive elements.
+  const interactiveCount = (source.match(/<(button|a|input|select|textarea)\b/gi) || []).length;
+  const hasFocusVisible =
+    /focus-visible|focus:ring|focus:outline|outline-none.*focus|focus:shadow/.test(source);
+  if (interactiveCount > 0 && !hasFocusVisible) {
+    addFinding({
+      rule: "Interactive elements need focus-visible styles",
+      severity: "warning",
+      category: "accessibility",
+      index: 0,
+      message: "Interactive elements are present but no focus-visible or focus-ring styling was found. Keyboard users cannot see focus.",
+      fix: "Add focus-visible:outline or focus-visible:ring utilities to buttons, links and inputs.",
+    });
+  }
+
   const hoverMotion = [...source.matchAll(/\b(?:hover|group-hover):(?:scale-\S+|translate-[xy]-\S+|shadow-\S+|rotate-\S+)\b/g)];
   metrics.uniformHoverMotion = hoverMotion.length;
   if (metrics.uniformHoverMotion > 0) {

@@ -10,10 +10,18 @@ const serverPath = path.join(here, "server.ts");
 const tsxCli = path.join(root, "node_modules", "tsx", "dist", "cli.mjs");
 
 const EXPECTED_TOOLS = [
+  "audit_catalogue",
+  "compare_components",
+  "find_similar",
   "get_component_bundle",
   "get_component_details",
+  "get_component_preview",
   "get_design_tokens",
   "list_components",
+  "list_facets",
+  "map_tokens",
+  "plan_install",
+  "server_status",
   "suggest_combination",
   "validate_ui_composition",
 ];
@@ -24,6 +32,7 @@ const transport = new StdioClientTransport({
   args: [tsxCli, serverPath],
   cwd: root,
   stderr: "pipe",
+  env: { ...process.env, MYUI_ALLOW_NETWORK: "false" },
 });
 transport.stderr?.on("data", (chunk) => {
   stderr += String(chunk);
@@ -54,15 +63,27 @@ try {
   });
   assert.equal(components.isError, undefined);
   assert.ok(components.structuredContent.returned >= 50);
-  assert.ok(components.structuredContent.total >= 8200, "local plus catalogue records are indexed");
+  assert.ok(components.structuredContent.total >= 5500, "canonical permissive records by default (licence gate on)");
   assert.ok(components.structuredContent.components.some((item) => item.name === "Button"));
+
+  const allComponents = await client.callTool({
+    name: "list_components",
+    arguments: { limit: 1, include_duplicates: true, license_policy: "any" },
+  });
+  assert.equal(allComponents.structuredContent.total, 8214, "include_duplicates + any reaches all 8,214 records");
 
   const catalogue = await client.callTool({
     name: "list_components",
-    arguments: { kind: "catalogue", limit: 5 },
+    arguments: { kind: "catalogue", limit: 5, license_policy: "any" },
   });
-  assert.equal(catalogue.structuredContent.total, 8157, "all catalogue records are indexed");
+  assert.equal(catalogue.structuredContent.total, 6218, "canonical catalogue records (dedup on by default)");
   assert.ok(catalogue.structuredContent.components.every((item) => item.origin === "catalogue"));
+
+  const allCatalogue = await client.callTool({
+    name: "list_components",
+    arguments: { kind: "catalogue", limit: 5, include_duplicates: true, license_policy: "any" },
+  });
+  assert.equal(allCatalogue.structuredContent.total, 8157, "include_duplicates reaches all 8,157 catalogue records");
 
   const catalogueSearch = await client.callTool({
     name: "list_components",
@@ -110,8 +131,19 @@ try {
   assert.ok(catalogueDetail.structuredContent.code.includes("SketchButton"));
   assert.ok(catalogueDetail.structuredContent.usageExamples.length >= 1);
   assert.ok(toolText(catalogueDetail).includes("## Source"));
-  assert.ok(catalogueDetail.structuredContent.copyTarget.includes("src/components/ui/"));
-  assert.ok(catalogueDetail.structuredContent.copyInstruction.includes("Copy the exact code"));
+  const preview = await client.callTool({
+    name: "get_component_preview",
+    arguments: { component_name: "kanchanasw/sketch-button" },
+  });
+  assert.equal(preview.isError, undefined);
+  assert.ok(toolText(preview).includes("Network access disabled"));
+  assert.ok(toolText(preview).includes("https://my-ui-dun.vercel.app/media/"));
+
+  const noPreview = await client.callTool({
+    name: "get_component_preview",
+    arguments: { component_name: "Button" },
+  });
+  assert.ok(toolText(noPreview).includes("no preview image"));
 
   const bundle = await client.callTool({
     name: "get_component_bundle",
@@ -189,8 +221,8 @@ try {
       <main className="min-h-screen bg-background text-foreground">
         <h1 className="text-3xl font-medium">Reconcile payments</h1>
         <label htmlFor="account">Account</label>
-        <input id="account" className="rounded-md border border-border" />
-        <button type="button" className="bg-brand text-primary-foreground">Review transfers</button>
+        <input id="account" className="rounded-md border border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+        <button type="button" className="bg-brand text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Review transfers</button>
       </main>
     );
   }`;

@@ -2,10 +2,27 @@ import path from "node:path";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
+function findRoot(startDir: string): string {
+  let dir = startDir;
+  for (let i = 0; i < 8; i++) {
+    if (
+      fs.existsSync(path.join(dir, "src", "data", "components.json")) ||
+      fs.existsSync(path.join(dir, "mcp", "server.ts"))
+    ) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // Fallback to the classic relative location (mcp/lib -> repo root).
+  return path.resolve(startDir, "../..");
+}
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** Repository root, resolved from this module rather than the client's cwd. */
-export const ROOT = path.resolve(HERE, "../..");
+export const ROOT = findRoot(HERE);
 export const COMPONENTS_DIR = path.join(ROOT, "src", "components");
 export const APP_DIR = path.join(ROOT, "src", "app");
 export const GLOBALS_CSS = path.join(APP_DIR, "globals.css");

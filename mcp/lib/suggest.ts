@@ -6,7 +6,7 @@ import type {
   SuggestedComponent,
   SuggestedSection,
 } from "./types";
-import { componentHandoff } from "./component-index";
+import { componentHandoff, ensureCatalogueParsed } from "./component-index";
 import { ANTI_PATTERNS, DESIGN_CHECKLIST } from "./design-principles";
 import {
   INDUSTRIES,
@@ -25,6 +25,8 @@ export interface SuggestInput {
   use_case: string;
   surface_type?: SurfaceType;
   constraints?: string;
+  license_policy?: "permissive-only" | "allow-weak-copyleft" | "any";
+  include_duplicates?: boolean;
 }
 
 const SURFACE_JOBS: Record<SurfaceType, string> = {
@@ -194,19 +196,33 @@ function preferredFor(need: string, surface: SurfaceType): string[] {
   }
 }
 
+function licenceOk(cls: string | undefined, policy: string): boolean {
+  const c = cls ?? "unknown";
+  if (policy === "any") return true;
+  if (policy === "allow-weak-copyleft") return c === "first-party" || c === "permissive" || c === "weak-copyleft";
+  return c === "first-party" || c === "permissive";
+}
+
 function pickForNeed(
   index: ComponentIndex,
   need: string,
   used: Set<string>,
   surface: SurfaceType,
+  licensePolicy: string,
+  includeDuplicates: boolean,
 ): ComponentInfo | null {
   for (const name of preferredFor(need, surface)) {
     const component =
       index.components.find(
-        (item) => item.origin === "local" && item.name === name && !used.has(item.id),
+        (item) => item.origin === "local" && item.name === name && !used.has(item.id) && (includeDuplicates || item.isCanonical !== false),
       ) ??
       index.components.find(
-        (item) => item.origin === "catalogue" && item.name === name && !used.has(item.id),
+        (item) =>
+          item.origin === "catalogue" &&
+          item.name === name &&
+          !used.has(item.id) &&
+          (includeDuplicates || item.isCanonical !== false) &&
+          licenceOk(item.licenseClass, licensePolicy),
       );
     if (component) return component;
   }
@@ -214,6 +230,7 @@ function pickForNeed(
 }
 
 function componentHint(component: ComponentInfo, role: string): SuggestedComponent {
+  ensureCatalogueParsed(component);
   const required = component.props.filter((prop) => prop.required).map((prop) => prop.name);
   const variants = Object.entries(component.variants)
     .map(([name, value]) => `${name}: ${value.values.join(" | ")}`)
@@ -242,6 +259,8 @@ function buildSections(
   index: ComponentIndex,
   surface: SurfaceType,
   direction: DesignDirection,
+  licensePolicy: string,
+  includeDuplicates: boolean,
 ): { sections: SuggestedSection[]; gaps: string[] } {
   const recipe = SURFACE_RECIPES[surface];
   const used = new Set<string>();
@@ -252,7 +271,7 @@ function buildSections(
     const components: SuggestedComponent[] = [];
     for (const need of slot.needs) {
       if (components.length >= 2) break;
-      const component = pickForNeed(index, need, used, surface);
+      const component = pickForNeed(index, need, used, surface, licensePolicy, includeDuplicates);
       if (!component) continue;
       used.add(component.id);
       components.push(componentHint(component, slot.slot));
@@ -465,7 +484,7 @@ export function suggestCombination(index: ComponentIndex, input: SuggestInput): 
     ],
   };
 
-  const { sections, gaps } = buildSections(index, surfaceType, direction);
+  const { sections, gaps } = buildSections(index, surfaceType, direction, input.license_policy ?? "permissive-only", input.include_duplicates ?? false);
   const recipe = SURFACE_RECIPES[surfaceType];
   const scaffold = buildScaffold(index, surfaceType, sections);
   const componentNames = [...new Set(

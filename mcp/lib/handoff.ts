@@ -2,10 +2,19 @@ import { componentHandoff, findComponents } from "./component-index";
 import { suggestCombination } from "./suggest";
 import type { ComponentIndex, ComponentInfo, HandoffBundle } from "./types";
 
+function hasAnimation(code: string): boolean {
+  return /\banimate-\S+|\btransition-\S+|\bduration-\d+|@keyframes\b/.test(code);
+}
+function hasReducedMotion(code: string): boolean {
+  return /motion-reduce:|prefers-reduced-motion|useReducedMotion/i.test(code);
+}
+
 export interface HandoffInput {
   components?: string[];
   requirements?: string;
   project_context?: string;
+  license_policy?: "permissive-only" | "allow-weak-copyleft" | "any";
+  include_duplicates?: boolean;
 }
 
 export const HANDOFF_REQUIREMENTS_QUESTIONS = [
@@ -77,10 +86,14 @@ function derivedComponents(
   index: ComponentIndex,
   requirements: string,
   projectContext: string | undefined,
+  licensePolicy?: "permissive-only" | "allow-weak-copyleft" | "any",
+  includeDuplicates?: boolean,
 ): ComponentInfo[] {
   const plan = suggestCombination(index, {
     use_case: requirements,
     constraints: projectContext,
+    license_policy: licensePolicy,
+    include_duplicates: includeDuplicates,
   });
   return dedupeById(
     plan.componentSources
@@ -102,7 +115,10 @@ export function buildHandoffBundle(
 
   if (requestedComponents.length) {
     for (const query of requestedComponents) {
-      const component = findComponents(index, query)[0];
+      const component = findComponents(index, query, {
+        license_policy: input.license_policy ?? "permissive-only",
+        include_duplicates: input.include_duplicates ?? false,
+      })[0];
       if (component) selected.push(component);
       else missingComponents.push(query);
     }
@@ -110,11 +126,12 @@ export function buildHandoffBundle(
   }
 
   if (!selected.length && requirements) {
-    selected.push(...derivedComponents(index, requirements, projectContext ?? undefined));
+    selected.push(...derivedComponents(index, requirements, projectContext ?? undefined, input.license_policy, input.include_duplicates));
     if (selected.length) selectionSource = "requirements";
   }
 
   const components = dedupeById(selected).map(componentHandoff);
+  const needsReducedMotion = components.some((c) => hasAnimation(c.code) && !hasReducedMotion(c.code));
   const coreDependencies = new Set(["react", "react-dom", "next"]);
   const npmDependencies = [
     ...new Set(
@@ -152,6 +169,9 @@ export function buildHandoffBundle(
       commands,
       steps: [
         "Read each exact source block below before copying. Do not regenerate it from memory or from the summaries.",
+        ...(needsReducedMotion
+          ? ["Reduced-motion gap detected: at least one selected component animates without a prefers-reduced-motion path. Apply the fix in the 'Reduced-motion adaptation' section before shipping."]
+          : []),
         "Several selected components may share one source file. Copy each `sourceFile` once; it contains all of the exports listed under it.",
         "Copy each `code` block into `suggestedPath` in the target project. Preserve the export and component body; change only import aliases that do not exist in the target.",
         npmDependencies.length
@@ -186,6 +206,36 @@ export function buildHandoffBundle(
   };
 }
 
+export function compactHandoffMarkdown(bundle: HandoffBundle): string {
+  const brief = bundle.brief;
+  const lines: string[] = [
+    "# My Ui component bundle (compact)",
+    "",
+    `- Requirements: ${brief.requirements || "(not supplied)"}`,
+    `- Resolved: ${brief.resolvedComponents.join(", ") || "(none)"}`,
+    ...(brief.missingComponents.length ? [`- Not found: ${brief.missingComponents.join(", ")}`] : []),
+    "",
+    "## Components",
+    "",
+  ];
+  for (const c of bundle.components) {
+    lines.push(`### ${c.name}`);
+    lines.push(`- Origin: ${c.origin}`);
+    lines.push(`- Copy to: \`${c.suggestedPath}\``);
+    lines.push(`- Import: \`${c.importPath}\``);
+    lines.push(`- Trust: ${c.trustTier ?? "unknown"} (${c.licenseClass ?? "unknown"})`);
+    lines.push(`- npm: ${c.dependencies.npm.length ? c.dependencies.npm.join(", ") : "none"}`);
+    lines.push(`- internal: ${c.dependencies.internal.length ? c.dependencies.internal.join(", ") : "none"}`);
+    lines.push(`- Props: ${c.props.length}`);
+    lines.push("");
+  }
+  lines.push("## Install");
+  lines.push("");
+  for (const step of bundle.install.steps) lines.push(`- ${step}`);
+  lines.push("");
+  lines.push("Use `include_source=true` (default) or `get_component_details` for full source.");
+  return lines.join("\n");
+}
 export function handoffMarkdown(bundle: HandoffBundle): string {
   const brief = bundle.brief;
   const seenSources = new Set<string>();
@@ -282,6 +332,27 @@ export function handoffMarkdown(bundle: HandoffBundle): string {
     "## Replacing an existing component",
     "",
     ...bundle.replacement.map((item) => `- ${item}`),
+    ...(bundle.components.some((c) => hasAnimation(c.code) && !hasReducedMotion(c.code))
+      ? [
+          "## Reduced-motion adaptation",
+          "",
+          "At least one selected component animates without a `prefers-reduced-motion` path. Apply this before shipping:",
+          "",
+          "```css",
+          "@media (prefers-reduced-motion: reduce) {",
+          "  *, *::before, *::after {",
+          "    animation-duration: 0.01ms !important;",
+          "    animation-iteration-count: 1 !important;",
+          "    transition-duration: 0.01ms !important;",
+          "    scroll-behavior: auto !important;",
+          "  }",
+          "}",
+          "```",
+          "",
+          "And in Tailwind, add `motion-reduce:transition-none motion-reduce:animate-none` to animated elements. Verify with the OS reduced-motion setting enabled.",
+          "",
+        ]
+      : []),
     "",
     "## Feedback loop",
     "",

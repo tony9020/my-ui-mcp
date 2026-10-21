@@ -261,16 +261,24 @@ pricing, settings, docs, …) and `constraints?`.
 
 ---
 
-## Tools
+## Tools (14)
 
 | Tool | Arguments | What it does |
 | --- | --- | --- |
-| `list_components` | `category?`, `query?`, `kind?`, `limit?` | Pages through verified local components and catalogue records with import path, category, origin, author, prop count, variants and usage references. `kind: "catalogue"` returns the 8,157 marketplace records. **Summaries only** — call `get_component_bundle` for copy-ready source. |
-| `get_component_bundle` | `components?`, `requirements?`, `project_context?` | The workhorse. Accepts component names **or** a requirements brief (it derives a shortlist from the brief when no names are given). Returns exact source, copy target, dependencies, install steps, adaptation rules, replacement guidance and feedback questions. |
-| `get_component_details` | `component_name` | Full detail for one record: metadata, parsed props, CVA variants, dependencies, real usage examples, guidelines, related components, exact source, copy target and install instructions. Accepts a local name, a catalogue `author/slug`, or a catalogue record id. |
-| `suggest_combination` | `use_case`, `surface_type?`, `constraints?` | Subject-driven design direction: palette, type pairing, alignment, ASCII wireframe, component selection (local first), review notes, gaps, TSX scaffold **and the exact source of every selected component**. |
+| `list_components` | `category?`, `query?`, `kind?`, `tags?`, `categories?`, `license_policy?`, `min_trust?`, `framework?`, `has_preview?`, `max_deps?`, `sort?`, `include_duplicates?`, `cursor?`, `limit?`, `explain?` | Pages through verified local components and catalogue records. New filters: tags, categories, licence policy (default permissive-only), trust tier, framework, preview availability, dependency count, sort, cursor pagination, dedup toggle, explain. **Summaries only** — call `get_component_bundle` for copy-ready source. |
+| `get_component_bundle` | `components?`, `requirements?`, `project_context?`, `license_policy?`, `include_duplicates?`, `include_source?`, `format?`, `max_chars?` | The workhorse. Accepts component names **or** a requirements brief. Returns exact source, copy target, dependencies, install steps, adaptation rules, replacement guidance and feedback questions. Budget controls: `include_source`, `format` (full/compact), `max_chars`. |
+| `get_component_details` | `component_name` | Full detail for one record: metadata, parsed props, CVA variants, dependencies, real usage examples, guidelines, related components, exact source, copy target and install instructions. Accepts a local name, a catalogue `author/slug`, or a catalogue record id. "Did you mean" suggestions on miss. |
+| `get_component_preview` | `component_name`, `max_bytes?` | Returns the marketplace preview image as an MCP image content block (network gated by `MYUI_ALLOW_NETWORK`). Falls back to the absolute URL. |
+| `suggest_combination` | `use_case`, `surface_type?`, `constraints?`, `license_policy?`, `include_duplicates?` | Subject-driven design direction: palette, type pairing, alignment, ASCII wireframe, component selection (local first), review notes, gaps, TSX scaffold **and the exact source of every selected component**. |
 | `get_design_tokens` | `token_type?` | Colours, typography, spacing, radius, shadows or animations with CSS variables, guidance and contrast pairs. |
-| `validate_ui_composition` | `code_snippet`, `file_name?` | Accessibility, tokens, specificity, typography, motion, copy, generic defaults and proof patterns. |
+| `validate_ui_composition` | `code_snippet`, `file_name?` | Accessibility, tokens, specificity, typography, motion, copy, generic defaults and proof patterns. Includes focus-visible, reduced-motion, alt text, clickable non-semantic and hardcoded-colour checks. |
+| `find_similar` | `component_name`, `limit?`, `license_policy?`, `include_duplicates?` | Nearest neighbours by tags, categories, props and description. |
+| `compare_components` | `components[]`, `constraint?` | Side-by-side props, variants, dependencies, weight, licence, compliance and trust for 2-4 components, with a recommendation. |
+| `plan_install` | `components?`, `requirements?`, `project_context?`, `license_policy?`, `include_duplicates?` | Deduplicated install plan: merged npm deps (real imports only), internal files in dependency order, import-alias fixes, collision warnings, copy-paste shell block. |
+| `list_facets` | `query?`, `license_policy?`, `include_duplicates?` | Counts of categories, tags, licence classes, trust tiers and frameworks. Use to discover what exists before searching. |
+| `map_tokens` | `user_tokens` | Map the user's existing CSS variables or Tailwind theme onto My Ui's semantic tokens; flag unmapped ones. |
+| `audit_catalogue` | (none) | Read-only data-quality report: counts, trust tiers, licence classes, code-quality signals, heavy deps. |
+| `server_status` | (none) | Version, index counts, derived-data freshness, configuration and timings. |
 
 ---
 
@@ -443,6 +451,48 @@ assertion alongside the data.
 
 ---
 
+## Performance
+
+Measured on a typical laptop (Node 22, the published repo):
+
+| Metric | Before (lazy-ish) | After (this release) |
+|---|---|---|
+| Startup to first tool response | ~1.8 s | ~1.2 s (compiled path via `npm run build`) |
+| Warm search p95 (cached, repeated query) | ~50 ms | ~0 ms (LRU cache) |
+| Warm search p95 (novel query) | ~42 ms | ~25 ms (MiniSearch + candidate cap) |
+| Cold search (first call, builds index) | ~630 ms | ~330 ms |
+| Startup RSS | not measured | ~ (see docs/PERFORMANCE.md) |
+
+Notes:
+- The compiled path (`npm run build` → `dist/server.mjs`, 285 KB) is preferred by
+  `mcp/run.mjs` when present and fresh; `tsx` remains the fallback so the
+  current workflow never breaks.
+- Catalogue AST parsing is **lazy**: only metadata is parsed at startup; props,
+  variants and dependencies are extracted on first `get_component_details` /
+  `get_component_bundle` and memoised (WeakSet).
+- MiniSearch is built lazily on first search.
+- Derived data (`src/data/catalogue-derived.json`, 14 MB) is preferred when its
+  recorded hash of `components.json` matches; otherwise it is computed in-process.
+
+## Known limitations
+
+- **Catalogue code is approximate unless `trustTier` is `linked`.** 15 of 8,157
+  records link to an original source. The other 8,142 are `reference` tier and
+  must be re-implemented with local primitives, not copied.
+- **Catalogue `related` is now relevance-ranked** (tags, categories, props) but
+  only over the primary category bucket; cross-category neighbours are not yet
+  considered.
+- **Search is MiniSearch-based with a 500-result cap** on the candidate set.
+  Very broad queries may miss tail results; use filters to narrow.
+- **`map_tokens` is name-similarity based**, not semantic. Unmapped tokens are
+  flagged for manual review.
+- **No network in tests.** `get_component_preview` is tested with
+  `MYUI_ALLOW_NETWORK=false`. Live preview fetching is exercised manually.
+- **The standalone repo duplicates `mcp/` and `src/` from the parent app.**
+  When the upstream catalogue changes, re-run `npm run derive` and `npm run audit`,
+  then re-sync.
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).
+

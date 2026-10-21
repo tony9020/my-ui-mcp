@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { APP_DIR, CATALOGUE_JSON, COMPONENTS_DIR, ROOT, readJson, relativeToRoot } from "./paths";
+import { loadDerived, computeDerivedAll } from "./derived";
+import MiniSearch from "minisearch";
 import type {
   AuthorInfo,
   CatalogueMetadata,
@@ -12,6 +14,7 @@ import type {
   ComponentIndexSummary,
   ComponentInfo,
   ComponentKind,
+  LicenseClass,
   ComponentSummary,
   ComponentVariants,
   PropInfo,
@@ -1262,6 +1265,8 @@ interface RawCatalogueRecord {
   sourceUrl: string | null;
   demoCode: string | null;
   componentCode: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
   generated: boolean;
   gradient: [string, string] | null;
 }
@@ -1274,6 +1279,7 @@ interface RawCatalogueDataset {
 
 interface CatalogueBuild {
   components: ComponentInfo[];
+  rawRecords: RawCatalogueRecord[];
   categoryNames: Map<string, string>;
   sourceFound: boolean;
   expectedCount: number | null;
@@ -1297,8 +1303,8 @@ function chooseCatalogueExport(
 
 function catalogueSourceNote(sourceUrl: string | null): string {
   return sourceUrl
-    ? "The catalogue record links to an original source. Verify the linked implementation and licence before adopting it."
-    : "No original source URL is recorded. This local catalogue record may be a representative reconstruction; verify the implementation and licence before adopting it.";
+    ? "Trust tier: linked. The catalogue record links to an original source. Prefer the upstream file, and treat the catalogue code below as a hint rather than an authoritative copy."
+    : "Trust tier: reference. No original source URL is recorded. This catalogue entry is an illustrative approximation of the idea; re-implement it using local primitives and tokens rather than copying it, and verify the licence before adopting anything.";
 }
 
 function buildCatalogueComponent(
@@ -1309,42 +1315,12 @@ function buildCatalogueComponent(
     ? raw.componentCode
     : "// The catalogue record has no component source.\n";
   const author = raw.author ?? { username: "unknown", name: "Unknown", avatar: null };
-  const sourceFile = ts.createSourceFile(
-    `${raw.slug}.tsx`,
-    code,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX,
-  );
-  const maps = collectDeclarations(sourceFile);
-  const exports = collectExports(sourceFile, maps);
-  const exportNames = [...exports.keys()].sort();
-  const chosen = chooseCatalogueExport(raw, exports);
-  const exportName = chosen?.exportName ?? raw.name;
-  const signature = chosen ? signatureFor(chosen.record, sourceFile) : { params: [] };
-  const resolved = resolveProps(signature.typeNode, maps, sourceFile);
-  const defaults = collectDefaults(signature.params[0]);
-
-  for (const [name, value] of defaults) {
-    const existing = resolved.props.find((prop) => prop.name === name);
-    if (existing) {
-      if (!existing.defaultValue) existing.defaultValue = value;
-    } else {
-      addProp(resolved.props, {
-        name,
-        type: "unknown",
-        required: false,
-        defaultValue: value,
-        description: "Destructured default.",
-      });
-    }
-  }
 
   const categories = raw.categories?.length ? unique(raw.categories) : ["uncategorised"];
   const categorySlug = categories[0] ?? "uncategorised";
   const category = categoryNames.get(categorySlug) ?? HUMANIZE(categorySlug);
-  const discoveredDeps = extractDependencies(sourceFile);
-  const npm = unique([...Object.keys(raw.dependencies ?? {}), ...discoveredDeps.npm]).sort();
+  // AST parsing is deferred to ensureCatalogueParsed() (lazy) to keep startup fast.
+  const npm = unique(Object.keys(raw.dependencies ?? {})).sort();
   const tags = unique([
     ...deriveTags(raw.name, categorySlug, "catalogue", code),
     ...(raw.tags ?? []).map((tag) => KEBAB(tag)),
@@ -1372,6 +1348,7 @@ function buildCatalogueComponent(
     },
     gradient: raw.gradient ?? null,
     generated: Boolean(raw.generated),
+    updatedAt: raw.updatedAt ?? null,
     registryRoute: `/r/${author.username}/${raw.slug}`,
     sourcePage: `/@${author.username}/components/${raw.slug}`,
     installCommand: `npx shadcn@latest add ${SITE_URL}/r/${author.username}/${raw.slug}`,
@@ -1382,7 +1359,7 @@ function buildCatalogueComponent(
     id: `catalogue:${author.username}:${raw.slug}`,
     slug: raw.slug,
     name: raw.name,
-    exportName,
+    exportName: raw.name,
     origin: "catalogue",
     category,
     categorySlug,
@@ -1390,15 +1367,15 @@ function buildCatalogueComponent(
     kind: "catalogue",
     description: firstSentence(raw.description) || `${raw.name} from the My Ui marketplace catalogue.`,
     file: `src/data/components.json#catalogue/${author.username}/${raw.slug}`,
-    importPath: `@/components/ui/${raw.slug}`,
+    importPath: `@/components/catalogue/${author.username}-${raw.slug}`,
     lineCount: code.split("\n").length,
     code,
-    exports: exportNames,
-    props: resolved.props,
-    propsType: signature.typeNode?.getText(sourceFile) ?? null,
-    inheritedProps: unique(resolved.inherited).slice(0, 10),
-    variants: resolved.variants,
-    dependencies: { npm, internal: discoveredDeps.internal },
+    exports: [],
+    props: [],
+    propsType: null,
+    inheritedProps: [],
+    variants: {},
+    dependencies: { npm, internal: [], declared: npm },
     tags,
     usageExamples: raw.demoCode
       ? [`// catalogue demo: ${author.username}/${raw.slug}\n${raw.demoCode}`]
@@ -1421,6 +1398,7 @@ function buildCatalogueComponents(): CatalogueBuild {
   if (!dataset || !Array.isArray(dataset.components)) {
     return {
       components: [],
+      rawRecords: [],
       categoryNames: new Map(),
       sourceFound: false,
       expectedCount: null,
@@ -1433,10 +1411,101 @@ function buildCatalogueComponents(): CatalogueBuild {
     components: dataset.components.map((record) =>
       buildCatalogueComponent(record, categoryNames),
     ),
+    rawRecords: dataset.components,
     categoryNames,
     sourceFound: true,
     expectedCount: dataset.meta?.total ?? dataset.components.length,
   };
+}
+
+const parsedCatalogue = new WeakSet<ComponentInfo>();
+let catalogueByCategoryGlobal: Map<string, ComponentInfo[]> | null = null;
+
+export function ensureCatalogueParsed(component: ComponentInfo): void {
+  if (component.origin !== "catalogue") return;
+  if (parsedCatalogue.has(component)) return;
+  const code = component.code;
+  const sourceFile = ts.createSourceFile(
+    `${component.slug}.tsx`,
+    code,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const maps = collectDeclarations(sourceFile);
+  const exports = collectExports(sourceFile, maps);
+  const exportNames = [...exports.keys()].sort();
+  const chosen = chooseCatalogueExport({ name: component.name, slug: component.slug } as RawCatalogueRecord, exports);
+  const exportName = chosen?.exportName ?? component.name;
+  const signature = chosen ? signatureFor(chosen.record, sourceFile) : { params: [] };
+  const resolved = resolveProps(signature.typeNode, maps, sourceFile);
+  const defaults = collectDefaults(signature.params[0]);
+  for (const [name, value] of defaults) {
+    const existing = resolved.props.find((prop) => prop.name === name);
+    if (existing) {
+      if (!existing.defaultValue) existing.defaultValue = value;
+    } else {
+      addProp(resolved.props, {
+        name,
+        type: "unknown",
+        required: false,
+        defaultValue: value,
+        description: "Destructured default.",
+      });
+    }
+  }
+  const discoveredDeps = extractDependencies(sourceFile);
+  const realNpm = unique(discoveredDeps.npm.length ? discoveredDeps.npm : (component.dependencies.npm ?? [])).sort();
+  component.exportName = exportName;
+  component.exports = exportNames;
+  component.props = resolved.props;
+  component.propsType = signature.typeNode?.getText(sourceFile) ?? null;
+  component.inheritedProps = unique(resolved.inherited).slice(0, 10);
+  component.variants = resolved.variants;
+  component.dependencies = {
+    npm: realNpm,
+    internal: unique([...(component.dependencies.internal ?? []), ...discoveredDeps.internal]),
+    declared: component.dependencies.declared,
+  };
+  if (!component.tokensUsed.length) component.tokensUsed = extractTokens(code);
+
+  // related (lazy): compute for this component using shared categories.
+  if (!component.related || component.related.length === 0) {
+    const propNames = new Set(component.props.map((p) => p.name));
+    const tagSet = new Set(component.tags);
+    const catSet = new Set(component.categories);
+    const candidateSet = new Set<ComponentInfo>();
+    for (const cat of component.categories) {
+      for (const c of catalogueByCategoryGlobal?.get(cat) ?? []) candidateSet.add(c);
+    }
+    const scored = [...candidateSet]
+      .filter((other) => other.id !== component.id && other.isCanonical !== false)
+      .map((other) => {
+        let sharedTags = 0;
+        for (const t of other.tags) if (tagSet.has(t)) sharedTags++;
+        let sharedCategories = 0;
+        for (const c of other.categories) if (catSet.has(c)) sharedCategories++;
+        let sharedProps = 0;
+        for (const p of other.props) if (propNames.has(p.name)) sharedProps++;
+        const score = sharedTags * 2 + sharedCategories * 3 + sharedProps;
+        const reasons: string[] = [];
+        if (sharedCategories) reasons.push(`${sharedCategories} shared categor${sharedCategories === 1 ? "y" : "ies"}`);
+        if (sharedTags) reasons.push(`${sharedTags} shared tag${sharedTags === 1 ? "" : "s"}`);
+        if (sharedProps) reasons.push(`${sharedProps} shared prop${sharedProps === 1 ? "" : "s"}`);
+        return { other, score, reasons };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score || a.other.name.localeCompare(b.other.name))
+      .slice(0, 6);
+    component.related = scored.map((item) => item.other.id);
+    component.relatedReasons = scored.map((item) => ({
+      id: item.other.id,
+      score: item.score,
+      reasons: item.reasons,
+    }));
+  }
+
+  parsedCatalogue.add(component);
 }
 
 export function buildComponentIndex(): ComponentIndex {
@@ -1447,7 +1516,94 @@ export function buildComponentIndex(): ComponentIndex {
     parseFile(file, usage, usageCounts, usedSlugs),
   );
   const catalogue = buildCatalogueComponents();
+  let derivedMap = loadDerived();
+  if (!derivedMap && catalogue.sourceFound) {
+    derivedMap = computeDerivedAll(catalogue.rawRecords);
+  }
   const components = [...localComponents, ...catalogue.components];
+
+  // Attach derived fields to every component.
+  for (const component of localComponents) {
+    component.trustTier = "verified";
+    component.licenseClass = "first-party";
+    component.isCanonical = true;
+    component.canonicalId = component.id;
+    component.duplicateOf = null;
+    component.alternates = [];
+    component.codeQuality = {
+      declaredDepsUnused: [],
+      importsResolvable: true,
+      usesUndefinedKeyframes: false,
+      demoMatchesComponent: true,
+      hasReducedMotion: false,
+      ariaScore: 0,
+      usesTokens: false,
+      usesHardcodedColor: false,
+    };
+    component.complianceScore = 100;
+    component.popularityScore = 0;
+    component.heavyDeps = [];
+    component.frameworkLock = "none";
+    component.codeHash = "";
+    component.resolvedPreviewUrl = null;
+    component.resolvedPreviewLight = null;
+    component.resolvedPreviewDark = null;
+    component.resolvedVideoUrl = null;
+  }
+  for (const component of catalogue.components) {
+    if (!component.catalogue) continue;
+    const d = derivedMap?.get(component.catalogue.id);
+    if (d) {
+      component.trustTier = d.trustTier;
+      component.licenseClass = d.licenseClass;
+      component.isCanonical = d.isCanonical;
+      component.canonicalId = d.canonicalId;
+      component.duplicateOf = d.duplicateOf;
+      component.alternates = d.alternates;
+      component.codeQuality = d.codeQuality;
+      component.complianceScore = d.complianceScore;
+      component.popularityScore = d.popularityScore;
+      component.heavyDeps = d.heavyDeps;
+      component.frameworkLock = d.frameworkLock;
+      component.codeHash = d.codeHash;
+      component.resolvedPreviewUrl = d.resolvedPreviewUrl;
+      component.resolvedPreviewLight = d.resolvedPreviewLight;
+      component.resolvedPreviewDark = d.resolvedPreviewDark;
+      component.resolvedVideoUrl = d.resolvedVideoUrl;
+      if (component.catalogue) {
+        component.catalogue.previewUrl = d.resolvedPreviewUrl;
+        component.catalogue.previewLight = d.resolvedPreviewLight;
+        component.catalogue.previewDark = d.resolvedPreviewDark;
+        component.catalogue.videoUrl = d.resolvedVideoUrl;
+      }
+    } else {
+      component.trustTier = component.catalogue.sourceUrl ? "linked" : "reference";
+      component.licenseClass = "unknown";
+      component.isCanonical = true;
+      component.canonicalId = component.id;
+      component.duplicateOf = null;
+      component.alternates = [];
+      component.codeQuality = {
+        declaredDepsUnused: [],
+        importsResolvable: true,
+        usesUndefinedKeyframes: false,
+        demoMatchesComponent: true,
+        hasReducedMotion: false,
+        ariaScore: 0,
+        usesTokens: false,
+        usesHardcodedColor: false,
+      };
+      component.complianceScore = 50;
+      component.popularityScore = 0;
+      component.heavyDeps = [];
+      component.frameworkLock = "none";
+      component.codeHash = "";
+      component.resolvedPreviewUrl = component.catalogue.previewUrl;
+      component.resolvedPreviewLight = component.catalogue.previewLight;
+      component.resolvedPreviewDark = component.catalogue.previewDark;
+      component.resolvedVideoUrl = component.catalogue.videoUrl;
+    }
+  }
 
   if (!catalogue.sourceFound) {
     console.error(
@@ -1496,13 +1652,7 @@ export function buildComponentIndex(): ComponentIndex {
       catalogueByCategory.set(category, bucket);
     }
   }
-  for (const component of catalogue.components) {
-    const bucket = catalogueByCategory.get(component.categorySlug) ?? [];
-    component.related = bucket
-      .filter((other) => other.id !== component.id)
-      .slice(0, 6)
-      .map((other) => other.id);
-  }
+  catalogueByCategoryGlobal = catalogueByCategory;
 
   const categoryMap = new Map<string, { slug: string; name: string; count: number }>();
   for (const component of components) {
@@ -1516,6 +1666,8 @@ export function buildComponentIndex(): ComponentIndex {
   }
 
   const originRank = (component: ComponentInfo) => (component.origin === "local" ? 0 : 1);
+
+  // MiniSearch index is built lazily on first search (see ensureSearchIndex).
 
   return {
     root: ROOT,
@@ -1606,10 +1758,197 @@ function normalizeName(value: string): string {
     .replace(/[\s_]+/g, "-");
 }
 
-export function findComponents(index: ComponentIndex, query: string): ComponentInfo[] {
+export interface FindOptions {
+  include_duplicates?: boolean;
+  license_policy?: "permissive-only" | "allow-weak-copyleft" | "any";
+  min_trust?: "verified" | "linked" | "reference";
+  framework?: "react" | "next";
+  has_preview?: boolean;
+  max_deps?: number;
+  tags?: string[];
+  categories?: string[];
+  sort?: "relevance" | "popularity" | "recent" | "compliance";
+  explain?: boolean;
+  cursor?: string;
+}
+
+export interface SearchResult {
+  components: ComponentInfo[];
+  excludedForLicence: number;
+  excludedDuplicates: number;
+  explanations?: { id: string; score: number; reasons: string[] }[];
+  nextCursor?: string;
+}
+
+const TRUST_RANK: Record<string, number> = { verified: 0, linked: 1, reference: 2 };
+
+function licenseAllowed(cls: LicenseClass | undefined, policy: string): boolean {
+  const c = cls ?? "unknown";
+  if (policy === "any") return true;
+  if (policy === "allow-weak-copyleft") return c === "first-party" || c === "permissive" || c === "weak-copyleft";
+  return c === "first-party" || c === "permissive";
+}
+
+export function suggestNames(index: ComponentIndex, query: string, limit = 5): string[] {
   const needle = normalizeName(query);
   if (!needle) return [];
-  const exact = index.components.filter((component) => {
+  // Try MiniSearch first
+  try {
+    if (!index.searchIndex) ensureSearchIndex(index);
+    const ms = index.searchIndex as { search: (q: string, o?: any) => { id: string; score: number }[] } | undefined;
+    if (ms) {
+      const results = ms.search(needle, { fuzzy: 0.3, prefix: true });
+      const names = results
+        .map((r) => index.byId.get(r.id)?.name)
+        .filter((n): n is string => Boolean(n));
+      if (names.length) return [...new Set(names)].slice(0, limit);
+    }
+  } catch {
+    // fall through
+  }
+  // Fallback: substring + Levenshtein on slugs/names
+  const candidates = index.components.map((c) => c.name);
+  const unique = [...new Set(candidates)];
+  const scored = unique.map((name) => {
+    const n = normalizeName(name);
+    let d = 0;
+    // simple contains bonus
+    if (n.includes(needle) || needle.includes(n)) d -= 5;
+    // levenshtein
+    const a = needle, b = n;
+    const m = a.length, nn = b.length;
+    const dp = Array.from({ length: m + 1 }, () => new Array(nn + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= nn; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= nn; j++) {
+        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+        dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+      }
+    }
+    d += dp[m][nn];
+    return { name, d };
+  });
+  scored.sort((a, b) => a.d - b.d);
+  return scored.slice(0, limit).map((s) => s.name);
+}
+
+export function ensureSearchIndex(index: ComponentIndex): void {
+  if (index.searchIndex) return;
+  try {
+    const ms = new MiniSearch({
+      fields: ["name", "slug", "description", "tags", "category", "props", "author", "importPath"],
+      storeFields: ["id"],
+      searchOptions: {
+        boost: { name: 4, slug: 3, tags: 2.5, category: 2, description: 1.5, props: 1.2, author: 1, importPath: 1 },
+        fuzzy: 0.2,
+        prefix: true,
+      },
+    });
+    ms.addAll(
+      index.components.map((component) => ({
+        id: component.id,
+        name: component.name,
+        slug: component.slug,
+        description: component.description,
+        tags: (component.tags || []).join(" "),
+        category: component.category,
+        props: (component.props || []).map((p) => p.name).join(" "),
+        author: component.catalogue?.author.username ?? component.catalogue?.author.name ?? "",
+        importPath: component.importPath,
+      })),
+    );
+    index.searchIndex = ms;
+  } catch (error) {
+    console.error(`[myui-mcp] MiniSearch index failed: ${error instanceof Error ? error.message : String(error)}`);
+    index.searchIndex = undefined;
+  }
+}
+
+// Small LRU cache for repeated searchComponents calls (warm queries).
+const SEARCH_CACHE = new Map<string, SearchResult>();
+const SEARCH_CACHE_MAX = 128;
+function searchCacheKey(query: string, options: FindOptions): string {
+  return query + "\u0000" + JSON.stringify(options);
+}
+
+function cacheResult(key: string, result: SearchResult): SearchResult {
+  if (SEARCH_CACHE.size >= SEARCH_CACHE_MAX) {
+    const firstKey = SEARCH_CACHE.keys().next().value;
+    if (firstKey !== undefined) SEARCH_CACHE.delete(firstKey);
+  }
+  SEARCH_CACHE.set(key, result);
+  return result;
+}
+
+export function searchComponents(index: ComponentIndex, query: string, options: FindOptions = {}): SearchResult {
+  ensureSearchIndex(index);
+  const cacheKey = searchCacheKey(query, options);
+  const cached = SEARCH_CACHE.get(cacheKey);
+  if (cached) {
+    // LRU touch
+    SEARCH_CACHE.delete(cacheKey);
+    SEARCH_CACHE.set(cacheKey, cached);
+    return cached;
+  }
+  const needle = normalizeName(query);
+  const opts = {
+    include_duplicates: options.include_duplicates ?? false,
+    license_policy: options.license_policy ?? "permissive-only",
+    min_trust: options.min_trust ?? "reference",
+    sort: options.sort ?? "relevance",
+    ...options,
+  };
+  const minTrustRank = TRUST_RANK[opts.min_trust ?? "reference"] ?? 2;
+
+  let pool = index.components;
+  if (!opts.include_duplicates) {
+    pool = pool.filter((c) => c.isCanonical !== false);
+  }
+  if (opts.tags && opts.tags.length) {
+    const tagSet = new Set(opts.tags.map((t) => t.toLowerCase()));
+    pool = pool.filter((c) => c.tags.some((t) => tagSet.has(t.toLowerCase())));
+  }
+  if (opts.categories && opts.categories.length) {
+    const catSet = new Set(opts.categories.map((c) => c.toLowerCase()));
+    pool = pool.filter((c) =>
+      c.categories.some((c2) => catSet.has(c2.toLowerCase())) ||
+      catSet.has(c.category.toLowerCase()),
+    );
+  }
+  if (opts.framework === "next") {
+    pool = pool.filter((c) => c.frameworkLock === "next" || (c.dependencies.npm || []).includes("next"));
+  }
+  if (opts.has_preview) {
+    pool = pool.filter((c) => !!c.resolvedPreviewUrl || !!c.catalogue?.previewUrl);
+  }
+  if (typeof opts.max_deps === "number") {
+    const maxDeps = opts.max_deps;
+    pool = pool.filter((c) => (c.dependencies.npm?.length ?? 0) <= maxDeps);
+  }
+
+  let excludedForLicence = 0;
+  pool = pool.filter((c) => {
+    const r = TRUST_RANK[c.trustTier ?? "reference"] ?? 2;
+    if (r > minTrustRank) return false;
+    if (!licenseAllowed(c.licenseClass, opts.license_policy)) {
+      excludedForLicence++;
+      return false;
+    }
+    return true;
+  });
+
+  const excludedDuplicates = opts.include_duplicates ? 0 : index.components.length - (pool.length + excludedForLicence);
+
+  if (!needle) {
+    let sorted = [...pool];
+    if (opts.sort === "popularity") sorted.sort((a, b) => (b.popularityScore ?? 0) - (a.popularityScore ?? 0));
+    else if (opts.sort === "compliance") sorted.sort((a, b) => (b.complianceScore ?? 0) - (a.complianceScore ?? 0));
+    else if (opts.sort === "recent") sorted.sort((a, b) => (b.catalogue?.updatedAt ?? "").localeCompare(a.catalogue?.updatedAt ?? ""));
+    return cacheResult(cacheKey, { components: sorted, excludedForLicence, excludedDuplicates });
+  }
+
+  const exact = pool.filter((component) => {
     const author = component.catalogue?.author.username ?? "";
     const catalogueKey = author ? `${author}/${component.slug}` : "";
     return (
@@ -1625,57 +1964,108 @@ export function findComponents(index: ComponentIndex, query: string): ComponentI
     );
   });
   if (exact.length) {
-    return exact.sort(
-      (a, b) =>
-        (a.origin === "local" ? 0 : 1) - (b.origin === "local" ? 0 : 1) ||
-        (b.catalogue?.stats.downloads ?? 0) - (a.catalogue?.stats.downloads ?? 0) ||
-        a.name.localeCompare(b.name),
+    const sorted = exact.sort((a, b) =>
+      (a.origin === "local" ? 0 : 1) - (b.origin === "local" ? 0 : 1) ||
+      (b.catalogue?.stats.downloads ?? 0) - (a.catalogue?.stats.downloads ?? 0) ||
+      a.name.localeCompare(b.name),
     );
+    return cacheResult(cacheKey, { components: sorted, excludedForLicence, excludedDuplicates });
   }
 
-  const scored = index.components
-    .map((component) => {
-      const haystack = [
-        component.id,
-        component.slug,
-        component.name,
-        component.exportName,
-        component.category,
-        component.file,
-        component.importPath,
-        component.catalogue?.author.username ?? "",
-        component.catalogue?.author.name ?? "",
-        component.catalogue?.id ?? "",
-        component.catalogue?.sourceUrl ?? "",
-        ...component.categories,
-        ...component.tags,
-        ...component.props.map((prop) => prop.name),
-      ]
-        .join(" ")
-        .toLowerCase();
-      let score = component.origin === "local" ? 40 : 0;
-      if (haystack.includes(needle)) score += 20;
-      for (const token of needle.split("-").filter(Boolean)) {
-        if (haystack.includes(token)) score += 6;
+  // MiniSearch relevance (precomputed index) with substring fallback.
+  const ms = index.searchIndex as { search: (q: string, o?: any) => { id: string; score: number; terms?: string[] }[] } | undefined;
+  const msScores = new Map<string, number>();
+  const msTerms = new Map<string, string[]>();
+  if (ms) {
+    try {
+      let count = 0;
+      for (const r of ms.search(needle, { fuzzy: 0.2, prefix: true })) {
+        if (count >= 500) break;
+        msScores.set(r.id, r.score);
+        msTerms.set(r.id, r.terms || []);
+        count++;
       }
-      if (component.slug.startsWith(needle)) score += 15;
-      if (component.name.toLowerCase().startsWith(needle)) score += 15;
-      return { component, score };
+    } catch {
+      // fall back to substring scoring below
+    }
+  }
+
+  // Build the candidate list from MiniSearch results when available, so we only
+  // score the matched subset instead of the whole pool.
+  const poolById = new Map(pool.map((c) => [c.id, c]));
+  let candidates: ComponentInfo[];
+  if (msScores.size > 0) {
+    candidates = [];
+    for (const id of msScores.keys()) {
+      const c = poolById.get(id);
+      if (c) candidates.push(c);
+    }
+    if (!candidates.length) candidates = pool;
+  } else {
+    candidates = pool;
+  }
+
+  const scored = candidates
+    .map((component) => {
+      const msScore = msScores.get(component.id);
+      let base: number;
+      const reasons: string[] = [];
+      if (msScore !== undefined) {
+        base = Math.round(msScore * 10);
+        if (component.slug.startsWith(needle)) { base += 15; if (opts.explain) reasons.push("slug prefix"); }
+        if (component.name.toLowerCase().startsWith(needle)) { base += 15; if (opts.explain) reasons.push("name prefix"); }
+        if (component.origin === "local") { base += 25; if (opts.explain) reasons.push("local boost"); }
+        const terms = msTerms.get(component.id);
+        if (opts.explain && terms && terms.length) reasons.push(`matched: ${terms.join(", ")}`);
+      } else {
+        const haystack = [
+          component.id, component.slug, component.name, component.exportName,
+          component.category, component.file, component.importPath,
+          component.catalogue?.author.username ?? "", component.catalogue?.author.name ?? "",
+          component.catalogue?.id ?? "", component.catalogue?.sourceUrl ?? "",
+          ...component.categories, ...component.tags,
+          ...component.props.map((prop) => prop.name),
+          component.description,
+        ].join(" ").toLowerCase();
+        base = 0;
+        if (haystack.includes(needle)) { base += 20; if (opts.explain) reasons.push("exact phrase in index"); }
+        for (const token of needle.split("-").filter(Boolean)) {
+          if (haystack.includes(token)) base += 6;
+        }
+        if (component.slug.startsWith(needle)) { base += 15; if (opts.explain) reasons.push("slug prefix"); }
+        if (component.name.toLowerCase().startsWith(needle)) { base += 15; if (opts.explain) reasons.push("name prefix"); }
+        if (component.origin === "local" && base >= 20) { base += 25; if (opts.explain) reasons.push("local boost"); }
+      }
+      const trustW = component.trustTier === "verified" ? 1.2 : component.trustTier === "linked" ? 1.05 : 0.85;
+      const pop = component.popularityScore ?? 0;
+      const comp = (component.complianceScore ?? 50) / 100;
+      const final = base * trustW * (0.7 + 0.3 * pop) * (0.8 + 0.2 * comp);
+      if (opts.explain && component.trustTier) reasons.push(`trust:${component.trustTier}`);
+      return { component, score: final, base, reasons };
     })
-    .filter((item) => item.score > 0)
-    .sort(
-      (a, b) =>
-        b.score - a.score ||
-        (a.component.origin === "local" ? 0 : 1) -
-          (b.component.origin === "local" ? 0 : 1) ||
-        (b.component.catalogue?.stats.downloads ?? 0) -
-          (a.component.catalogue?.stats.downloads ?? 0) ||
-        a.component.name.localeCompare(b.component.name),
-    );
-  return scored.map((item) => item.component);
+    .filter((item) => item.base > 0)
+    .sort((a, b) => {
+      if (opts.sort === "popularity") return (b.component.popularityScore ?? 0) - (a.component.popularityScore ?? 0);
+      if (opts.sort === "compliance") return (b.component.complianceScore ?? 0) - (a.component.complianceScore ?? 0);
+      if (opts.sort === "recent") return (b.component.catalogue?.updatedAt ?? "").localeCompare(a.component.catalogue?.updatedAt ?? "");
+      return b.score - a.score;
+    });
+
+
+  const explanations = opts.explain
+    ? scored.map((item) => ({ id: item.component.id, score: Math.round(item.score * 100) / 100, reasons: item.reasons }))
+    : undefined;
+
+  return cacheResult(cacheKey, { components: scored.map((item) => item.component), excludedForLicence, excludedDuplicates, explanations });
 }
 
+export function findComponents(index: ComponentIndex, query: string, options?: FindOptions): ComponentInfo[] {
+  return searchComponents(index, query, options).components;
+}
+
+
 export function componentDetailPayload(component: ComponentInfo, index: ComponentIndex) {
+  ensureCatalogueParsed(component);
   const handoff = componentHandoff(component);
   return {
     ...summaryOf(component),
@@ -1702,15 +2092,36 @@ export function componentDetailPayload(component: ComponentInfo, index: Componen
 
 /** A copy-ready source record. Never strip the code: the agent must copy it. */
 export function componentHandoff(component: ComponentInfo): ComponentHandoff {
+  ensureCatalogueParsed(component);
   const suggestedPath =
     component.origin === "local"
       ? component.file
-      : `src/components/ui/${component.slug}.tsx`;
+      : `src/components/catalogue/${component.catalogue?.author.username ?? "unknown"}-${component.slug}.tsx`;
   const sourceAvailable =
     component.origin === "local" ||
     (component.code.trim().length > 0 &&
       !component.code.trim().startsWith("// The catalogue record has no component source."));
   const catalogue = component.catalogue;
+
+  const problems: string[] = [];
+  if (component.codeQuality) {
+    if (component.codeQuality.declaredDepsUnused.length) problems.push(`declared-but-unused dependencies: ${component.codeQuality.declaredDepsUnused.join(", ")}`);
+    if (component.codeQuality.usesUndefinedKeyframes) problems.push("uses animate-[...] keyframes that are not defined in this project");
+    if (!component.codeQuality.demoMatchesComponent) problems.push("demo does not import the component it claims to show");
+    if (!component.codeQuality.hasReducedMotion) problems.push("no reduced-motion handling");
+    if (component.codeQuality.usesHardcodedColor) problems.push("hardcoded colours instead of semantic tokens");
+  }
+
+  let copyInstruction: string;
+  if (component.origin === "local") {
+    copyInstruction = `Verified local source. Copy the exact code below into \`${suggestedPath}\` in the target project. Preserve the export and imports; adapt only import aliases. Do not paraphrase or regenerate it.`;
+  } else if (component.trustTier === "linked") {
+    copyInstruction = `Linked catalogue record (prefer the upstream file at ${catalogue?.sourceUrl}). The code below is a hint/reconstruction: verify it against the upstream implementation and the ${catalogue?.license ?? "unknown"} licence, then copy or re-implement as needed. Do not treat it as authoritative.`;
+  } else {
+    const problemLine = problems.length ? ` Detected issues: ${problems.join("; ")}.` : "";
+    copyInstruction = `Reference-only catalogue record: this is an illustrative approximation, not production code. Re-implement it using local primitives and semantic tokens rather than copying it.${problemLine} Licence: ${catalogue?.license ?? "unknown"} (verify before adopting).`;
+  }
+
   const licenceNote = catalogue
     ? ` Verify the ${catalogue.license} licence and attribution before copying.`
     : "";
@@ -1737,7 +2148,7 @@ export function componentHandoff(component: ComponentInfo): ComponentHandoff {
     tokensUsed: component.tokensUsed,
     usageExamples: component.usageExamples,
     guidelines: component.guidelines,
-    copyInstruction: `Copy the exact code below into \`${suggestedPath}\` in the target project. Do not paraphrase, regenerate or summarise it.${licenceNote}${installNote}`,
+    copyInstruction,
     ...(catalogue
       ? {
           license: catalogue.license,
@@ -1746,6 +2157,18 @@ export function componentHandoff(component: ComponentInfo): ComponentHandoff {
           sourceNote: catalogue.sourceNote,
         }
       : {}),
+    trustTier: component.trustTier,
+    licenseClass: component.licenseClass,
+    isCanonical: component.isCanonical,
+    canonicalId: component.canonicalId,
+    duplicateOf: component.duplicateOf,
+    alternates: component.alternates,
+    codeQuality: component.codeQuality,
+    complianceScore: component.complianceScore,
+    popularityScore: component.popularityScore,
+    heavyDeps: component.heavyDeps,
+    frameworkLock: component.frameworkLock,
+    resolvedPreviewUrl: component.resolvedPreviewUrl,
   };
 }
 
