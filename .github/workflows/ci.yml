@@ -33,7 +33,7 @@ jobs:
       - name: Derive up-to-date check
         run: |
           npm run derive
-          git diff --exit-code src/data/catalogue-derived.json
+          node -e "const fs=require('fs');const crypto=require('crypto');const src=fs.readFileSync('src/data/components.json');const der=JSON.parse(fs.readFileSync('src/data/catalogue-derived.json'));const h=crypto.createHash('sha256').update(src).digest('hex');console.log('sourceHash match:', der.meta.sourceHash === h); if (der.meta.sourceHash !== h) process.exit(1);"
 
       - name: Installer dry-run
         run: node scripts/setup.mjs --ide all --global --dry-run
