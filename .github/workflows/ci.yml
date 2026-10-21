@@ -24,7 +24,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Unit tests
+      - name: Unit and CLI tests
         run: node --import tsx --test 'test/**/*.test.mjs'
 
       - name: Smoke test (spawns the real MCP server)
@@ -40,3 +40,10 @@ jobs:
 
       - name: Build (compiled path)
         run: npm run build
+
+      - name: Compiled CLI smoke
+        run: |
+          node bin/myui.mjs status --json
+          node bin/myui.mjs search button --limit 1 --json
+          node bin/myui.mjs audit test/fixtures/clean.tsx --json
+          node bin/myui.mjs publish test/fixtures/clean.tsx --dry-run --json

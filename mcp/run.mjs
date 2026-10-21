@@ -20,15 +20,19 @@ const tsxCli = path.join(root, "node_modules", "tsx", "dist", "cli.mjs");
 const tsServer = path.join(here, "server.ts");
 const distServer = path.join(root, "dist", "server.mjs");
 
-// Prefer the compiled build when it is present and fresh.
+// Prefer the compiled build when it is present and fresh. A published
+// package ships dist/ but no tsx, so dist wins when the tsx fallback is
+// unavailable even if tar extraction order makes its mtime look older.
 let useDist = false;
-if (fs.existsSync(distServer) && fs.existsSync(tsServer)) {
-  try {
-    const distMtime = fs.statSync(distServer).mtimeMs;
-    const srcMtime = fs.statSync(tsServer).mtimeMs;
-    if (distMtime >= srcMtime) useDist = true;
-  } catch {
-    useDist = false;
+if (fs.existsSync(distServer)) {
+  if (!fs.existsSync(tsServer) || !fs.existsSync(tsxCli)) {
+    useDist = true;
+  } else {
+    try {
+      useDist = fs.statSync(distServer).mtimeMs >= fs.statSync(tsServer).mtimeMs;
+    } catch {
+      useDist = true;
+    }
   }
 }
 

@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] — Phase 1 CLI
+
+### Added
+- `myui` CLI (`bin/myui.mjs`, `cli/`, `core/`) with `login`, `logout`,
+  `search`, `publish`, `audit`, `review`, `status`, `tokens` and `map-tokens`.
+- Offline search over the existing index with the same licence gate, trust
+  tiers and duplicate policy as the MCP server.
+- Catalogue and source audit, including recursive directory scanning and
+  `--fail-on none|error|warning`.
+- `publish --dry-run` and `--local`; remote publish is a client contract until
+  `/api/v1/publish` ships in Phase 4.
+- `core/audit.ts` and `core/map-tokens.ts`, shared by the CLI and the future
+  HTTP API.
+- 14 CLI tests under `test/cli.test.mjs` (36 tests total).
+- `bin` / `exports` / `files` package metadata and a `prepack` build for `npx`.
+- `docs/CLI.md`.
+
+### Changed
+- `tsx` moved to `devDependencies`; `dist/` is the published runtime path.
+- `mcp/run.mjs` and `bin/myui.mjs` prefer `dist/` when `tsx` is unavailable,
+  so a published install does not depend on tar extraction order.
+- README updated for 14 tools and the CLI.
+
+### Notes
+- No breaking changes to the 14 MCP tools, prompts, resources or URIs.
+
 ## [Unreleased] — upgrade
 
 ### Added

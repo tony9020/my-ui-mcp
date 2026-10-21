@@ -12,14 +12,15 @@ It ships **three layers** and one **copy-first workflow**:
 | **Marketplace catalogue** | All 8,157 records in `src/data/components.json`, including `componentCode`, `demoCode`, author, licence, stats and tags. Marked `origin: "catalogue"` with a source caveat. |
 | **Design tokens** | Parsed live from `src/app/globals.css` — colour, typography, spacing, radius, shadow and motion with WCAG contrast pairs. |
 
-**8,214 components total, 6 tools, 2 prompts, 5 static resources + 2 resource
-templates.**
+**8,214 components total, 14 tools, 2 prompts, 5 static resources + 2 resource
+templates, plus a `myui` CLI for the same index and workflow.**
 
 ---
 
 ## Table of contents
 
 - [Quick start](#quick-start)
+- [CLI](#cli)
 - [IDE setup](#ide-setup)
 - [The process: 7 stages](#the-process-7-stages)
 - [Design guide: Plan → Review → Build → Critique](#design-guide-plan--review--build--critique)
@@ -48,7 +49,7 @@ npm run setup -- --ide all
 Expected smoke output:
 
 ```
-PASS tools=6 components=8214 catalogue=8157 suggestions=5sections sources=8 bundle=2 prompt=15713chars handoff=18879chars resources=62
+PASS tools=14 components=5549 catalogue=6218 suggestions=5sections sources=8 bundle=2 prompt=15680chars handoff=19760chars resources=62
 ```
 
 Then reload your IDE and ask the agent something like:
@@ -58,6 +59,53 @@ Then reload your IDE and ask the agent something like:
 
 The agent should **ask you questions before it writes anything**, then return
 exact source blocks for you to copy into your project.
+
+---
+
+## CLI
+
+The same index and workflow are available without an MCP client. `search`,
+`audit`, `review`, `status`, `tokens` and `map-tokens` run **fully offline**.
+`login` and `publish` talk to a hosted API only when one is configured.
+
+```bash
+npm run build                    # dist/cli.mjs, dist/server.mjs, dist/core.mjs
+node bin/myui.mjs --help         # local checkout
+npx myui --help                  # after publishing the package
+```
+
+| Command | What it does | Network |
+| --- | --- | --- |
+| `myui search <query>` | Ranked search over 57 local components and 8,157 catalogue records. | No |
+| `myui audit [file\|dir]` | Catalogue health report, or static analysis of source files. | No |
+| `myui review [file\|dir]` | Stricter audit; warnings fail by default. | No |
+| `myui status` | Index counts, derived freshness and current configuration. | No |
+| `myui tokens [--type colors]` | Semantic tokens as Markdown, JSON or CSS. | No |
+| `myui map-tokens <file>` | Map your CSS variables onto My Ui tokens. | No |
+| `myui login` | Store a hosted API token at `~/.config/myui/config.json` (mode 0600). | Optional |
+| `myui logout` | Remove the token. | No |
+| `myui publish <file>` | Validate, then upload, `--dry-run`, or `--local`. | Yes |
+
+```bash
+myui search "pricing table" --limit 5
+myui search button --json --license any --include-duplicates
+myui search "" --category Primitives --kind primitive
+myui audit src/components/ui/button.tsx
+myui review src/components --fail-on warning
+myui tokens --type colors --format css
+myui map-tokens tokens.css --json
+myui login --api-url https://my-ui.example.com --token "$MYUI_TOKEN"
+myui publish ./Button.tsx --dry-run
+myui publish ./Button.tsx --local        # writes .myui/registry/button.json
+```
+
+Global flags: `--json`, `--no-color`, `--verbose`.
+
+`publish` is deliberately honest about the missing backend: without `--dry-run`
+or `--local` it exits 2 with *"No hosted API configured"* until the hosted
+`/api/v1/publish` route ships. It never reports an upload that did not happen.
+Full command reference, exit codes and CI recipes are in
+[`docs/CLI.md`](docs/CLI.md).
 
 ---
 
@@ -362,8 +410,18 @@ Catalogue source is a fallback with an explicit warning attached.
 
 ```
 my-ui-mcp/
+├── bin/myui.mjs             # portable CLI launcher (dist/cli.mjs, else tsx)
+├── cli/
+│   ├── main.ts              # commander program
+│   ├── commands/            # login, logout, search, publish, audit, review,
+│   │                        # status, tokens, map-tokens
+│   └── lib/                 # config (0600), API client, lazy index, output
+├── core/
+│   ├── index.ts             # public core surface: index/search/tokens/validate
+│   ├── audit.ts             # catalogue + source audit (shared with Phase 4 API)
+│   └── map-tokens.ts        # CSS-variable mapping
 ├── mcp/
-│   ├── run.mjs              # portable entry point every IDE points at
+│   ├── run.mjs              # portable MCP entry point every IDE points at
 │   ├── server.ts            # tool / prompt / resource registration + stdio
 │   ├── smoke-test.mjs       # end-to-end client test against the real server
 │   ├── README.md            # deep-dive: internals, catalogue, tokens, dev
@@ -379,17 +437,20 @@ my-ui-mcp/
 │       ├── design-principles.ts # the guardrails
 │       ├── paths.ts             # repo-relative path resolution
 │       └── types.ts
-├── scripts/setup.mjs        # IDE installer
+├── scripts/                 # setup, derive-catalogue, audit
+├── test/                    # 36 unit + CLI tests (node:test)
+├── dist/                    # esbuild output (gitignored, shipped in the package)
 ├── examples/                # copy-paste config per IDE
 ├── src/
 │   ├── components/**/*.tsx  # 57 verified local exports across 35 files
 │   ├── data/components.json # 8,157 catalogue records (~27 MB, diff-suppressed)
+│   ├── data/catalogue-derived.json # 14 MB derived index (hash-gated)
 │   ├── data/taxonomy.ts     # category tree
 │   ├── hooks/, lib/         # internal utilities the components import
 │   └── app/globals.css      # semantic token source
 ├── .mcp.json                # Claude Code, this repo
 ├── opencode.json            # OpenCode, this repo
-└── .github/workflows/ci.yml # typecheck + smoke + installer dry-run
+└── .github/workflows/ci.yml # typecheck + tests + smoke + build
 ```
 
 ---
@@ -397,15 +458,18 @@ my-ui-mcp/
 ## Development
 
 ```bash
-npm run typecheck     # tsc --noEmit over mcp/**
-npm run smoke         # spawns the real server, exercises all 6 tools
+npm run typecheck     # tsc --noEmit over mcp/, cli/ and core/
+npm test              # 36 unit + CLI tests, then the end-to-end MCP smoke test
+npm run build         # esbuild: dist/server.mjs, dist/cli.mjs, dist/core.mjs
+npm run smoke         # spawns the real server, exercises all 14 tools
 npm run mcp           # run the server on stdio by hand (stderr for logs)
+npm run cli -- --help # the CLI
 npm run setup -- --help
 ```
 
 The smoke test is the contract. It asserts:
 
-- exactly 6 tools registered
+- exactly 14 tools registered
 - 8,214 components indexed, 8,157 of them catalogue records
 - `list_components` paging + free-text search
 - `get_component_bundle` returning source for explicit names **and** deriving

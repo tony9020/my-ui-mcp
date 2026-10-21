@@ -73,3 +73,33 @@ skills); for this server, correctness > search quality > feature breadth.
     are flagged for manual review.
 18. **`audit_catalogue` is in-process** (not shelling out to `npm run audit`),
     returning a concise report. The full report is available via the CLI.
+
+## Phase 1 — CLI
+
+19. **CLI lives in the standalone repo, web/API in the parent.** The 10k-line
+    index and analysis core already lives here; the Next.js/Vercel surface
+    lives in `21st clone`. The parent consumes this package instead of
+    duplicating the core (the duplication removed in `48190cb`).
+
+20. **`commander` is the only new runtime dependency.** Zero transitive
+    dependencies, ~100 KB. Hand-rolling argv parsing would save one dependency
+    but lose `--help` formatting, choices and suggestion behaviour for nine
+    commands.
+
+21. **`publish` is honest about the missing backend.** With no API configured
+    it exits `2` and says so. `--dry-run` and `--local` are fully functional.
+    Reporting a fake successful upload was rejected.
+
+22. **The data ships in the package.** `npm pack` is **6.8 MB compressed**
+    (43.5 MB unpacked) for 8,214 records. That is small enough for `npx`;
+    a postinstall download was rejected because it fails offline and behind
+    proxies. A compressed/slim index can follow if the catalogue grows.
+
+23. **`tsx` is a devDependency; `dist/` is the published runtime.** `prepack`
+    builds `dist/server.mjs`, `dist/cli.mjs` and `dist/core.mjs`. Both
+    launchers prefer `dist/` when `tsx` is absent, so tar extraction order
+    cannot send a published install down the `tsx` path.
+
+24. **`core/` re-exports, it does not move.** `core/index.ts` points at the
+    existing `mcp/lib/*` modules and adds only `audit.ts` and `map-tokens.ts`.
+    The MCP server, its 14 tools, prompts, resources and URIs are untouched.

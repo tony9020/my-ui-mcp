@@ -13,6 +13,9 @@ coverage/
 *.log
 npm-debug.log*
 
+# CLI local publish output
+.myui/
+
 .DS_Store
 Thumbs.db
 

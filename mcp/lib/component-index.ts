@@ -1901,44 +1901,54 @@ export function searchComponents(index: ComponentIndex, query: string, options: 
   };
   const minTrustRank = TRUST_RANK[opts.min_trust ?? "reference"] ?? 2;
 
-  let pool = index.components;
-  if (!opts.include_duplicates) {
-    pool = pool.filter((c) => c.isCanonical !== false);
-  }
-  if (opts.tags && opts.tags.length) {
-    const tagSet = new Set(opts.tags.map((t) => t.toLowerCase()));
-    pool = pool.filter((c) => c.tags.some((t) => tagSet.has(t.toLowerCase())));
-  }
-  if (opts.categories && opts.categories.length) {
-    const catSet = new Set(opts.categories.map((c) => c.toLowerCase()));
-    pool = pool.filter((c) =>
-      c.categories.some((c2) => catSet.has(c2.toLowerCase())) ||
-      catSet.has(c.category.toLowerCase()),
-    );
-  }
-  if (opts.framework === "next") {
-    pool = pool.filter((c) => c.frameworkLock === "next" || (c.dependencies.npm || []).includes("next"));
-  }
-  if (opts.has_preview) {
-    pool = pool.filter((c) => !!c.resolvedPreviewUrl || !!c.catalogue?.previewUrl);
-  }
-  if (typeof opts.max_deps === "number") {
-    const maxDeps = opts.max_deps;
-    pool = pool.filter((c) => (c.dependencies.npm?.length ?? 0) <= maxDeps);
-  }
+  // Capture the filters once so the duplicate count can be measured against the
+  // same candidate set. Reporting `index.length - pool.length` conflated every
+  // filter (category, tags, framework, preview, deps) with "duplicates hidden".
+  const tagSet = opts.tags?.length ? new Set(opts.tags.map((tag) => tag.toLowerCase())) : null;
+  const catSet = opts.categories?.length
+    ? new Set(opts.categories.map((category) => category.toLowerCase()))
+    : null;
+  const requireNext = opts.framework === "next";
+  const requirePreview = Boolean(opts.has_preview);
+  const maxDeps = typeof opts.max_deps === "number" ? opts.max_deps : null;
+
+  const matchesBaseFilters = (candidate: ComponentInfo): boolean => {
+    if (tagSet && !candidate.tags.some((tag) => tagSet.has(tag.toLowerCase()))) return false;
+    if (
+      catSet &&
+      !candidate.categories.some((category) => catSet.has(category.toLowerCase())) &&
+      !catSet.has(candidate.category.toLowerCase())
+    ) {
+      return false;
+    }
+    if (requireNext && !(candidate.frameworkLock === "next" || (candidate.dependencies.npm || []).includes("next"))) {
+      return false;
+    }
+    if (requirePreview && !(candidate.resolvedPreviewUrl || candidate.catalogue?.previewUrl)) {
+      return false;
+    }
+    if (maxDeps !== null && (candidate.dependencies.npm?.length ?? 0) > maxDeps) {
+      return false;
+    }
+    return true;
+  };
+
+  const matchedBase = index.components.filter(matchesBaseFilters);
+  const canonicalBase = opts.include_duplicates
+    ? matchedBase
+    : matchedBase.filter((candidate) => candidate.isCanonical !== false);
+  const excludedDuplicates = opts.include_duplicates ? 0 : matchedBase.length - canonicalBase.length;
 
   let excludedForLicence = 0;
-  pool = pool.filter((c) => {
-    const r = TRUST_RANK[c.trustTier ?? "reference"] ?? 2;
+  const pool = canonicalBase.filter((candidate) => {
+    const r = TRUST_RANK[candidate.trustTier ?? "reference"] ?? 2;
     if (r > minTrustRank) return false;
-    if (!licenseAllowed(c.licenseClass, opts.license_policy)) {
+    if (!licenseAllowed(candidate.licenseClass, opts.license_policy)) {
       excludedForLicence++;
       return false;
     }
     return true;
   });
-
-  const excludedDuplicates = opts.include_duplicates ? 0 : index.components.length - (pool.length + excludedForLicence);
 
   if (!needle) {
     let sorted = [...pool];

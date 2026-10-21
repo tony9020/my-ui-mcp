@@ -16,28 +16,60 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "bin": {
+    "myui": "./bin/myui.mjs"
+  },
+  "exports": {
+    ".": "./dist/core.mjs",
+    "./core": "./dist/core.mjs",
+    "./server": "./dist/server.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin/",
+    "cli/",
+    "core/",
+    "mcp/",
+    "scripts/",
+    "skills/",
+    "dist/",
+    "src/components/",
+    "src/data/components.json",
+    "src/data/catalogue-derived.json",
+    "src/app/globals.css",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "tsx mcp/server.ts",
     "mcp": "tsx mcp/server.ts",
+    "cli": "node bin/myui.mjs",
+    "cli:help": "node bin/myui.mjs --help",
     "smoke": "node mcp/smoke-test.mjs",
     "typecheck": "tsc --noEmit",
     "setup": "node scripts/setup.mjs",
     "setup:help": "node scripts/setup.mjs --help",
     "derive": "node scripts/derive-catalogue.mjs",
     "audit": "node scripts/audit.mjs",
-    "build": "esbuild mcp/server.ts --bundle --packages=external --platform=node --format=esm --outfile=dist/server.mjs",
+    "build": "npm run build:server && npm run build:cli && npm run build:core",
+    "prepack": "npm run build",
+    "build:server": "esbuild mcp/server.ts --bundle --packages=external --platform=node --format=esm --outfile=dist/server.mjs",
+    "build:cli": "esbuild cli/main.ts --bundle --packages=external --platform=node --format=esm --outfile=dist/cli.mjs --banner:js=\"#!/usr/bin/env node\"",
+    "build:core": "esbuild core/index.ts --bundle --packages=external --platform=node --format=esm --outfile=dist/core.mjs",
     "test": "node --import tsx --test 'test/**/*.test.mjs' && node mcp/smoke-test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "commander": "^15.0.0",
     "minisearch": "^7.2.0",
-    "tsx": "^4.23.15",
     "typescript": "^5.7.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15"
   },
   "type": "module"
 }
