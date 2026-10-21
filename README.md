@@ -21,6 +21,7 @@ templates, plus a `myui` CLI for the same index and workflow.**
 
 - [Quick start](#quick-start)
 - [CLI](#cli)
+- [Agent skill](#agent-skill)
 - [IDE setup](#ide-setup)
 - [The process: 7 stages](#the-process-7-stages)
 - [Design guide: Plan → Review → Build → Critique](#design-guide-plan--review--build--critique)
@@ -106,6 +107,39 @@ or `--local` it exits 2 with *"No hosted API configured"* until the hosted
 `/api/v1/publish` route ships. It never reports an upload that did not happen.
 Full command reference, exit codes and CI recipes are in
 [`docs/CLI.md`](docs/CLI.md).
+
+---
+
+## Agent skill
+
+`skills/my-ui/SKILL.md` is the canonical **Agent Skill** for the CLI and the
+MCP server. It has YAML `name` and `description`, explicit trigger conditions,
+the exact CLI commands per workflow, a 14-tool MCP map, and three references:
+`cli.md`, `handoff.md` and `guardrails.md`.
+
+Install it into an IDE:
+
+```bash
+npm run skill -- --ide all                 # project scope, all four targets
+npm run skill -- --ide opencode            # one IDE
+npm run skill -- --ide opencode --scope global
+npm run skill -- --ide cursor --dir ~/code/my-app
+npm run skill -- --ide all --link          # symlink, so repo edits are picked up
+npm run skill -- --ide all --dry-run       # show the paths, write nothing
+npx myui-skill --ide all                   # after publishing the package
+```
+
+| Target | Project path | Global path |
+| --- | --- | --- |
+| `opencode` | `.opencode/skills/my-ui/` | `~/.config/opencode/skills/my-ui/` |
+| `claude-code` | `.claude/skills/my-ui/` | `~/.claude/skills/my-ui/` |
+| `cursor` | `.cursor/skills/my-ui/` | `~/.cursor/skills/my-ui/` |
+| `agents` | `.agents/skills/my-ui/` | `~/.agents/skills/my-ui/` |
+
+The installer copies `SKILL.md` and its three references. It never edits the
+source. An existing different skill is skipped unless you pass `--force`; with
+`--force` it is renamed to `<target>.bak-<timestamp>` first. In OpenCode the
+skill appears as `my-ui` and as the `/my-ui` command.
 
 ---
 
@@ -437,8 +471,11 @@ my-ui-mcp/
 │       ├── design-principles.ts # the guardrails
 │       ├── paths.ts             # repo-relative path resolution
 │       └── types.ts
-├── scripts/                 # setup, derive-catalogue, audit
-├── test/                    # 36 unit + CLI tests (node:test)
+├── skills/my-ui/
+│   ├── SKILL.md            # canonical Agent Skill: name, description, triggers
+│   └── references/         # cli.md, handoff.md, guardrails.md
+├── scripts/                 # setup, install-skill, derive-catalogue, audit
+├── test/                    # 48 unit, CLI and skill tests (node:test)
 ├── dist/                    # esbuild output (gitignored, shipped in the package)
 ├── examples/                # copy-paste config per IDE
 ├── src/
@@ -459,11 +496,12 @@ my-ui-mcp/
 
 ```bash
 npm run typecheck     # tsc --noEmit over mcp/, cli/ and core/
-npm test              # 36 unit + CLI tests, then the end-to-end MCP smoke test
+npm test              # 48 unit, CLI and skill tests, then the MCP smoke test
 npm run build         # esbuild: dist/server.mjs, dist/cli.mjs, dist/core.mjs
 npm run smoke         # spawns the real server, exercises all 14 tools
 npm run mcp           # run the server on stdio by hand (stderr for logs)
 npm run cli -- --help # the CLI
+npm run skill -- --help # the skill installer
 npm run setup -- --help
 ```
 

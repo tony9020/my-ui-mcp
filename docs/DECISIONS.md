@@ -103,3 +103,30 @@ skills); for this server, correctness > search quality > feature breadth.
 24. **`core/` re-exports, it does not move.** `core/index.ts` points at the
     existing `mcp/lib/*` modules and adds only `audit.ts` and `map-tokens.ts`.
     The MCP server, its 14 tools, prompts, resources and URIs are untouched.
+
+## Phase 2 — Agent Skill
+
+25. **One universal Agent Skills format for every IDE.** `skills/my-ui/SKILL.md`
+    uses the portable `name` + `description` frontmatter. OpenCode reads
+    `.opencode/skills/`, `.claude/skills/` and `.agents/skills/`; Claude Code
+    reads `.claude/skills/`; Cursor reads `.cursor/skills/`. The installer
+    writes the same directory shape everywhere. A separate Cursor `.mdc` was
+    rejected because modern Cursor supports skills and a second copy would
+    drift.
+
+26. **The skill is a router, not a second manual.** `SKILL.md` stays short
+    enough to load on demand and points at three references. The CLI and MCP
+    tool descriptions remain the source of truth; the skill teaches when to
+    call them and what not to invent. It does not re-implement search, audit or
+    publishing logic.
+
+27. **Copy by default, symlink on request.** A copy is predictable and works
+    on every filesystem. `--link` is available for people who edit the skill in
+    the repo and want the IDE to see changes immediately. `--force` renames an
+    existing different skill to `<target>.bak-<timestamp>` before writing; it
+    never deletes user content silently. Project scope is the default; global
+    writes require `--scope global`.
+
+28. **`myui-skill` is a second bin.** Consumers should not need to know the
+    repository layout to install the skill. `npx myui-skill --ide all` works
+    from the published package. The canonical source still lives in `skills/`.

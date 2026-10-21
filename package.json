@@ -2,7 +2,7 @@
   "name": "my-ui-mcp",
   "version": "1.0.0",
   "private": true,
-  "description": "Local stdio MCP server for the My Ui design system: 57 verified local components, 8,157 marketplace catalogue records, semantic tokens, a copy-first handoff workflow and composition validation.",
+  "description": "Local stdio MCP server, CLI and agent skill for the My Ui design system: 57 verified local components, 8,157 marketplace catalogue records, semantic tokens, a copy-first handoff workflow and composition validation.",
   "keywords": [
     "mcp",
     "model-context-protocol",
@@ -10,14 +10,20 @@
     "react",
     "components",
     "ai",
-    "ide"
+    "ide",
+    "cli",
+    "agent-skills",
+    "claude-code",
+    "cursor",
+    "opencode"
   ],
   "license": "MIT",
   "engines": {
     "node": ">=20.0.0"
   },
   "bin": {
-    "myui": "./bin/myui.mjs"
+    "myui": "./bin/myui.mjs",
+    "myui-skill": "./scripts/install-skill.mjs"
   },
   "exports": {
     ".": "./dist/core.mjs",
@@ -46,6 +52,8 @@
     "mcp": "tsx mcp/server.ts",
     "cli": "node bin/myui.mjs",
     "cli:help": "node bin/myui.mjs --help",
+    "skill": "node scripts/install-skill.mjs",
+    "skill:help": "node scripts/install-skill.mjs --help",
     "smoke": "node mcp/smoke-test.mjs",
     "typecheck": "tsc --noEmit",
     "setup": "node scripts/setup.mjs",

@@ -24,7 +24,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Unit and CLI tests
+      - name: Unit, CLI and skill tests
         run: node --import tsx --test 'test/**/*.test.mjs'
 
       - name: Smoke test (spawns the real MCP server)
@@ -37,6 +37,9 @@ jobs:
 
       - name: Installer dry-run
         run: node scripts/setup.mjs --ide all --global --dry-run
+
+      - name: Skill installer dry-run
+        run: node scripts/install-skill.mjs --ide all --scope project --dir "$RUNNER_TEMP/myui-skill" --dry-run
 
       - name: Build (compiled path)
         run: npm run build

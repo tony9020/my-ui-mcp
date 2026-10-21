@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] — Phase 2 Agent Skill
+
+### Added
+- `skills/my-ui/SKILL.md`: canonical Agent Skill with YAML `name` and
+  `description`, explicit trigger conditions, exact CLI commands per workflow,
+  a 14-tool MCP map and the design guardrails.
+- `skills/my-ui/references/cli.md`, `handoff.md` and `guardrails.md`.
+- `scripts/install-skill.mjs` + `npm run skill`: installs the skill into
+  OpenCode, Claude Code, Cursor and generic Agent Skills directories. Supports
+  project/global scope, copy/symlink, `--dry-run`, and `--force` with
+  timestamped backups.
+- `myui-skill` bin for `npx myui-skill`.
+- 12 skill and installer tests (48 tests total).
+
+### Changed
+- README documents the skill and installer.
+- Package metadata adds the `myui-skill` bin, `skill` scripts and discovery
+  keywords.
+
+### Notes
+- No changes to the CLI commands, the 14 MCP tools, prompts, resources or URIs.
+
 ## [Unreleased] — Phase 1 CLI
 
 ### Added
